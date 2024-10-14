@@ -1,26 +1,27 @@
-SHOW DATABASES;
-
 CREATE DATABASE IF NOT EXISTS adtech;
 
 USE adtech;
 
+DROP TABLE IF EXISTS events;
 CREATE TABLE IF NOT EXISTS events (
-        user_id    INT,
-        event_name VARCHAR(128),
-        advertiser VARCHAR(128),
-        campaign   INT(11),
-        gender     VARCHAR(128),
-        income     VARCHAR(128),
-        page_url   VARCHAR(128),
-        region     VARCHAR(128),
-        country    VARCHAR(128),
-        SORT KEY adtmidx (user_id, event_name, advertiser, campaign)
+    user_id INT,
+    event_name VARCHAR(128),
+    advertiser VARCHAR(128),
+    campaign INT(11),
+    gender VARCHAR(128),
+    income VARCHAR(128),
+    page_url VARCHAR(128),
+    region VARCHAR(128),
+    country VARCHAR(128),
+    SORT KEY adtmidx (user_id, event_name, advertiser, campaign),
+    SHARD KEY user_id (user_id)
 );
 
-CREATE REFERENCE TABLE campaigns (
-        campaign_id   SMALLINT(6) NOT NULL DEFAULT '0',
-        campaign_name VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
-        PRIMARY KEY (campaign_id)
+DROP TABLE IF EXISTS campaigns;
+CREATE REFERENCE TABLE IF NOT EXISTS campaigns (
+    campaign_id SMALLINT(6) NOT NULL DEFAULT '0',
+    campaign_name VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_general_ci DEFAULT NULL,
+    PRIMARY KEY (campaign_id)
 );
 
 INSERT INTO campaigns VALUES
@@ -42,6 +43,20 @@ INSERT INTO campaigns VALUES
 CREATE PIPELINE events
 AS LOAD DATA KAFKA 'public-kafka.memcompute.com:9092/ad_events'
 BATCH_INTERVAL 2500
+INTO TABLE events
+FIELDS TERMINATED BY '\t' ENCLOSED BY '' ESCAPED BY '\\'
+LINES STARTING BY ''
+(user_id,event_name,advertiser,campaign,gender,income,page_url,region,country);
+
+ALTER PIPELINE events SET OFFSETS EARLIEST;
+
+TEST PIPELINE events LIMIT 1;
+
+DROP PIPELINE events;
+
+CREATE PIPELINE events
+AS LOAD DATA KAFKA 'public-kafka.memcompute.com:9092/ad_events'
+BATCH_INTERVAL 2500
 IGNORE INTO TABLE events
 FIELDS TERMINATED BY '\t' ENCLOSED BY '' ESCAPED BY '\\'
 LINES STARTING BY ''
@@ -54,10 +69,13 @@ TEST PIPELINE events LIMIT 1;
 START PIPELINE events;
 
 -- Total Number of Events
-SELECT COUNT(*) AS count
-FROM events;
+SELECT COUNT(*) FROM events;
 
 -- Events by Region
+SELECT events.country AS `events.country`, COUNT(events.country) AS 'events.countofevents'
+FROM adtech.events AS events
+GROUP BY 1;
+
 SELECT country, COUNT(country) AS count
 FROM events
 GROUP BY 1
@@ -65,11 +83,11 @@ ORDER BY count DESC
 LIMIT 10;
 
 -- Events by Top 5 Advertisers
-SELECT advertiser, COUNT(*) AS count
-FROM events
-WHERE (advertiser LIKE '%Subway%' OR advertiser LIKE '%McDonals%' OR advertiser LIKE '%Starbucks%' OR advertiser LIKE '%Dollar General%' OR advertiser LIKE '%YUM! Brands%' OR advertiser LIKE '%Dunkin Brands Group%')
+SELECT events.advertiser AS `events.advertiser`, COUNT(*) AS `events.count`
+FROM adtech.events AS events
+WHERE (events.advertiser LIKE '%Subway%' OR events.advertiser LIKE '%McDonals%' OR events.advertiser LIKE '%Starbucks%' OR events.advertiser LIKE '%Dollar General%' OR events.advertiser LIKE '%YUM! Brands%' OR events.advertiser LIKE '%Dunkin Brands Group%')
 GROUP BY 1
-ORDER BY count DESC;
+ORDER BY `events.count` DESC;
 
 -- Ad Visitors by Gender and Income
 SELECT *
